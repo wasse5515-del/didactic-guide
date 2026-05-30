@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS courses (
   title TEXT NOT NULL,
   description TEXT,
   topic TEXT NOT NULL,
-  status TEXT DEFAULT 'generating', -- 'generating', 'active', 'archived'
+  status TEXT DEFAULT 'generating',
   outline JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS chapters (
   title TEXT NOT NULL,
   content TEXT,
   order_index INTEGER NOT NULL,
-  status TEXT DEFAULT 'generating', -- 'generating', 'completed', 'reviewed'
+  status TEXT DEFAULT 'generating',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -61,9 +61,9 @@ CREATE TABLE IF NOT EXISTS user_progress (
 CREATE TABLE IF NOT EXISTS generation_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   course_id UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-  job_type TEXT NOT NULL, -- 'outline', 'chapter', 'lesson'
-  status TEXT DEFAULT 'pending', -- 'pending', 'processing', 'completed', 'failed'
-  target_id UUID, -- chapter_id or lesson_id depending on job_type
+  job_type TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',
+  target_id UUID,
   error_message TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -90,59 +90,3 @@ CREATE INDEX IF NOT EXISTS idx_generation_jobs_course_id ON generation_jobs(cour
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_status ON generation_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_enrollments_user_id ON enrollments(user_id);
 CREATE INDEX IF NOT EXISTS idx_enrollments_course_id ON enrollments(course_id);
-
--- Create RLS policies (if using Supabase)
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE chapters ENABLE ROW LEVEL SECURITY;
-ALTER TABLE lessons ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_progress ENABLE ROW LEVEL SECURITY;
-ALTER TABLE generation_jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE enrollments ENABLE ROW LEVEL SECURITY;
-
--- RLS Policy: Users can only see their own data
-CREATE POLICY "Users can view their own record"
-  ON users FOR SELECT
-  USING (auth.uid()::text = clerk_id);
-
--- RLS Policy: Courses are visible to owner and enrolled users
-CREATE POLICY "Users can view their own courses"
-  ON courses FOR SELECT
-  USING (
-    user_id = (SELECT id FROM users WHERE clerk_id = auth.uid()::text)
-    OR id IN (
-      SELECT course_id FROM enrollments 
-      WHERE user_id = (SELECT id FROM users WHERE clerk_id = auth.uid()::text)
-    )
-  );
-
--- RLS Policy: Chapters visible through course access
-CREATE POLICY "Users can view chapters of accessible courses"
-  ON chapters FOR SELECT
-  USING (
-    course_id IN (
-      SELECT id FROM courses 
-      WHERE user_id = (SELECT id FROM users WHERE clerk_id = auth.uid()::text)
-      OR id IN (
-        SELECT course_id FROM enrollments 
-        WHERE user_id = (SELECT id FROM users WHERE clerk_id = auth.uid()::text)
-      )
-    )
-  );
-
--- RLS Policy: Lessons visible through chapter/course access
-CREATE POLICY "Users can view lessons of accessible courses"
-  ON lessons FOR SELECT
-  USING (
-    chapter_id IN (
-      SELECT id FROM chapters 
-      WHERE course_id IN (
-        SELECT id FROM courses 
-        WHERE user_id = (SELECT id FROM users WHERE clerk_id = auth.uid()::text)
-        OR id IN (
-          SELECT course_id FROM enrollments 
-          WHERE user_id = (SELECT id FROM users WHERE clerk_id = auth.uid()::text)
-        )
-      )
-    )
-  );
